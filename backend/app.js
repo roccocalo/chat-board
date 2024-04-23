@@ -6,6 +6,10 @@ const logger = require('morgan');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const User = require('./models/userSchema');
+const passport = require('passport');
+const session = require('express-session');
+const LocalStrategy = require("passport-local").Strategy;
+const bcrypt = require('bcryptjs');
 
 
 require('dotenv').config();
@@ -17,6 +21,46 @@ const app = express();
 
 mongoose.connect(process.env.MONGODB_URI);
 
+app.use(session({ secret: "cats", resave: false, saveUninitialized: true }));
+app.use(passport.session());
+app.use(express.urlencoded({ extended: false }));
+
+passport.use(
+  new LocalStrategy(async (username, password, done) => {
+    try {
+      const user = await User.findOne({ username: username });
+      if (!user) {
+        return done(null, false, { message: "Incorrect username" });
+      }
+      bcrypt.compare(password, user.password, (err, res) => {
+        if (res) {
+          // passwords match! log user in
+          return done(null, user)
+        } else {
+          // passwords do not match!
+          return done(null, false, { message: "Incorrect password" })
+        }
+      })
+    } catch(err) {
+      return done(err);
+    }
+  })
+);
+
+passport.serializeUser((user, done) => {
+  done(null, user.id);
+});
+
+passport.deserializeUser(async (id, done) => {
+  try {
+    const user = await User.findById(id);
+    done(null, user);
+  } catch(err) {
+    done(err);
+  };
+});
+
+//user.id is a virtual getter provided by mongoose which returns the document’s _id field cast to a string
 
 
 // view engine setup
