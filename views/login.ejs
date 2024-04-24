@@ -1,10 +1,14 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <title>Login</title>
-    <link rel='stylesheet' href='/stylesheets/style.css' />
-  </head>
-  <body>
+
+<head>
+  <title>Login</title>
+  <link rel='stylesheet' href='/stylesheets/style.css' />
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+
+<body>
+  <div class="form-container">
     <h1>Login</h1>
     <form action="/login" method="post">
       <div>
@@ -14,11 +18,18 @@
       <div>
         <label for="password">Password:</label>
         <input type="password" id="password" name="password" required>
+        <% if (message) { %>
+          <p class="error">
+            <%= message %>
+          </p>
+          <% } %>
       </div>
-      <div>
-        <input type="submit" value="Login">
+      <div class="login-buttons">
+        <button type="submit">Login</button>
         <button><a href="/signup">Signup</a></button>
       </div>
     </form>
-  </body>
+  </div>
+</body>
+
 </html>

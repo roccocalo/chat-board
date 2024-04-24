@@ -3,24 +3,25 @@ const router = express.Router();
 const passport = require('passport');
 const bcrypt = require('bcryptjs');
 const { body, validationResult } = require('express-validator');
-const User = require('../models/userSchema'); 
-const Message = require('../models/messageSchema'); 
+const User = require('../models/userSchema');
+const Message = require('../models/messageSchema');
 
 router.get('/', async (req, res) => {
   const messages = await Message.find().populate('user');;
-  res.render('index', { user: req.user, message: messages });
+  res.render('index', { user: req.user, message: messages, moment: require('moment') });
 });
 
 router.get('/login', (req, res) => {
-res.render('login', {user: req.user, })
+  res.render('login', { user: req.user, message: [] })
 })
 
-router.post('/login', 
+router.post('/login',
   body('username').notEmpty().withMessage('Username must not be empty.'),
   body('password').notEmpty().withMessage('Password must not be empty.'),
   (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.log(errors.array())
       return res.status(400).render('login', { user: req.user, errors: errors.array() });
     }
     passport.authenticate('local', (err, user, info) => {
@@ -35,20 +36,21 @@ router.post('/login',
 );
 
 router.get('/signup', (req, res) => {
-res.render('signup', {user: req.user, })
+  res.render('signup', { user: req.user, message: [], errors: [] })
 })
 
-router.post('/signup', 
+router.post('/signup',
   body('username').notEmpty().withMessage('Username must not be empty.'),
   body('password').notEmpty().withMessage('Password must not be empty.'),
+  body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters long.'),
   async (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).render('signup' , {user: req.user, errors: errors.array() });
+      return res.status(400).render('signup', { user: req.user, errors: errors.array(), message: [] });
     }
     const user = await User.findOne({ username: req.body.username });
     if (user) {
-      return res.status(400).render('signup', { message: 'Username already exists.' });
+      return res.status(400).render('signup', { message: 'Username already exists.', errors: [] });
     }
     bcrypt.hash(req.body.password, 10, async (err, hashedPassword) => {
       if (err) { return next(err); }
@@ -65,11 +67,11 @@ router.post('/signup',
   }
 );
 
-router.get('/new-message', (req,res) => {
+router.get('/new-message', (req, res) => {
   res.render('new-message', { user: req.user });
 })
 
-router.post('/new-message', 
+router.post('/new-message',
   body('title').notEmpty().withMessage('Title must not be empty.'),
   body('message').notEmpty().withMessage('message must not be empty.'),
   async (req, res, next) => {
@@ -86,14 +88,14 @@ router.post('/new-message',
       });
       await message.save();
       res.redirect('/');
-    } catch(err) {
+    } catch (err) {
       next(err);
     }
   }
 );
 
 router.get('/logout', (req, res) => {
-  req.logout(() => {});
+  req.logout(() => { });
   res.redirect('/');
 });
 

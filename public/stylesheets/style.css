@@ -1,8 +1,162 @@
 body {
-  padding: 50px;
-  font: 14px "Lucida Grande", Helvetica, Arial, sans-serif;
+  padding: 0px;
+  margin: 0px;
+  font: 18px "Lucida Grande", Helvetica, Arial, sans-serif;
+  background-color: #ececec;
 }
 
-a {
-  color: #00B7FF;
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  background-color: #333;
+  color: white;
+}
+
+nav {
+  display: flex;
+  flex-direction: row;
+  gap: 20px;
+}
+
+nav a {
+  color: white;
+  text-decoration: none;
+  font-size: x-large;
+}
+
+.welcome {
+  padding-left: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 25px
+}
+
+section {
+  padding: 20px;
+}
+
+article {
+  border: 1px solid #333;
+  border-radius: 5px;
+  padding: 20px;
+  margin-bottom: 20px;
+  word-wrap: break-word;
+  max-width: 100%;
+}
+
+article h4 {
+  margin: 0 0 10px 0;
+}
+
+article p {
+  margin: 0 0 10px 0;
+}
+
+button {
+  margin: 5px;
+  padding: 10px;
+  background-color: #333;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  font-size: larger;
+}
+
+button a {
+  color: white;
+  text-decoration: none;
+}
+
+.form-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-items: center;
+  border: 1px solid #333;
+  border-radius: 5px;
+  padding: 20px;
+  margin: 80px auto;
+  width: 350px
+}
+
+form input {
+  width: 80%;
+  padding: 10px;
+  margin-bottom: 20px;
+}
+
+.message-title-in {
+  width: 100%;
+}
+
+form textarea {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 20px;
+  resize: vertical;
+}
+
+form button {
+  padding: 10px 20px;
+  border: none;
+  background-color: #333;
+  color: white;
+  cursor: pointer;
+}
+
+.login-buttons {
+  display: flex;
+  align-items: center;
+  gap: 20px
+}
+
+.sign-button {
+  text-align: center;
+}
+
+.error {
+  color: red;
+}
+
+.sign-login-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+@media all and (max-width: 480px) {
+  body {
+    font-size: 20px;
+  }
+
+  .form-container {
+    width: 80%;
+    padding: 30px;
+  }
+
+  .login-buttons,
+  .sign-login-button {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 20px;
+  }
+
+  form input,
+  form button {
+    width: 90%;
+    padding: 15px;
+    font-size: 16px;
+  }
+
+  .welcome {
+    flex-direction: column;
+    gap: 0px;
+    padding: 0px;
+  }
+
+
+
 }

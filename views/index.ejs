@@ -1,35 +1,49 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <title>Message Board</title>
-    <link rel='stylesheet' href='/stylesheets/style.css' />
-  </head>
-  <body>
-    <header>
-      <h1>Message Board</h1>
-      <nav>
-        <a href="/login">Login</a>
-        <a href="/signup">Signup</a>
-      </nav>
-    </header>
+
+<head>
+  <title>Message Board</title>
+  <link rel='stylesheet' href='/stylesheets/style.css' />
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+
+<body>
+  <header>
     <h1>Message Board</h1>
-    <p>Welcome to Message Board</p>
+    <nav>
+      <a href="/login">Login</a>
+      <a href="/signup">Signup</a>
+    </nav>
+  </header>
+
+  <div class="welcome">
     <% if (user) { %>
       <h2>Welcome, <%= user.username %>!</h2>
       <button><a href="/new-message">New Message</a></button>
       <button><a href="/logout">Logout</a></button>
-    <% } %>
-    <section>
-      <h3>Messages</h3>
-      <% message.forEach(function(message) { %>
-        <article>
-          <h4>Title: <%= message.title %></h4>
-          <p>message: <%= message.message %></p>
-          <% if (user) { %>
-            <p>Author: <%= message.user.username %>  </p>
-          <% } %>
-        </article>
-      <% }); %>
-    </section>
-  </body>
+      <% } %>
+  </div>
+
+  <section>
+    <h3>Messages</h3>
+    <% if (!user) { %>
+      <p>Become a member to see the author and dates of the messages </p>
+      <% } %>
+        <% message.forEach(function(message) { %>
+          <article>
+            <h4>Title: <%= message.title %>
+            </h4>
+            <p>message: <%= message.message %>
+            </p>
+            <% if (user) { %>
+              <p>Author: <%= message.user.username %>
+              </p>
+              <p>Date: <%= moment(message.timestamp).format('MMMM Do YYYY, h:mm:ss a') %>
+              </p>
+              <% } %>
+          </article>
+          <% }); %>
+  </section>
+</body>
+
 </html>
