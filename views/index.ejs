@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Message Board</title>
+    <link rel='stylesheet' href='/stylesheets/style.css' />
+  </head>
+  <body>
+    <header>
+      <h1>Message Board</h1>
+      <nav>
+        <a href="/login">Login</a>
+        <a href="/signup">Signup</a>
+      </nav>
+    </header>
+    <h1>Message Board</h1>
+    <p>Welcome to Message Board</p>
+    <% if (user) { %>
+      <h2>Welcome, <%= user.username %>!</h2>
+      <button><a href="/new-message">New Message</a></button>
+      <button><a href="/logout">Logout</a></button>
+    <% } %>
+    <section>
+      <h3>Messages</h3>
+      <% message.forEach(function(message) { %>
+        <article>
+          <h4>Title: <%= message.title %></h4>
+          <p>message: <%= message.message %></p>
+          <% if (user) { %>
+            <p>Author: <%= message.user.username %>  </p>
+          <% } %>
+        </article>
+      <% }); %>
+    </section>
+  </body>
+</html>
