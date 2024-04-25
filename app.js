@@ -93,4 +93,11 @@ app.use(function (err, req, res, next) {
   res.render('error');
 });
 
+const port = process.env.PORT || 3000;
+
+// code for hosting
+app.listen(port, "0.0.0.0", function () {
+  console.log(`Server is running on port ${port}`);
+});
+
 module.exports = app;
