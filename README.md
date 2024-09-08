@@ -1,7 +1,7 @@
 ## Preview
 
 ![alt text](./public/preview/mobile%20preview.png)
-### 👉 See it live [here](https://members-only-production-2d77.up.railway.app/)
+
 "Members Only" is a private clubhouse where visitors are welcome to view messages, but only registered users are allowed to post new messages and see the message creators and timestamps.
 
 ## Built With
