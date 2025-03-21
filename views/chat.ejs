@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Live Chat</title>
+  <link rel='stylesheet' href='/stylesheets/style.css' />
+  <link rel='stylesheet' href='/stylesheets/chat.css' />
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Message Board Chat</h1>
+    <nav>
+      <a href="/">Home</a>
+      <% if (user) { %>
+        <a href="/logout">Logout</a>
+      <% } else { %>
+        <a href="/login">Login</a>
+        <a href="/signup">Signup</a>
+      <% } %>
+    </nav>
+  </header>
+
+  <div class="chat-container">
+    <div class="sidebar">
+      <div class="rooms-section">
+        <h3>Rooms</h3>
+        <ul id="rooms-list">
+          <li class="active" data-room="general">General</li>
+        </ul>
+        <div class="new-room-form">
+          <input type="text" id="new-room-input" placeholder="New room name">
+          <button id="create-room-btn">Create</button>
+        </div>
+      </div>
+
+      <div class="online-users-section">
+        <h3>Online Users</h3>
+        <ul id="online-users-list"></ul>
+      </div>
+    </div>
+
+    <div class="chat-content">
+      <div class="chat-messages" id="messages-container"></div>
+
+      <div class="typing-indicator" id="typing-indicator"></div>
+
+      <div class="message-input-container">
+        <textarea id="message-input" placeholder="Type a message..."></textarea>
+        <button id="send-button">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const currentUser = {
+        id: '<%= user._id %>',
+        username: '<%= user.username %>'
+      };
+
+      let currentRoom = 'general';
+      let typingTimeout = null;
+
+      const socket = io();
+
+      const messagesContainer = document.getElementById('messages-container');
+      const messageInput = document.getElementById('message-input');
+      const sendButton = document.getElementById('send-button');
+      const typingIndicator = document.getElementById('typing-indicator');
+      const onlineUsersList = document.getElementById('online-users-list');
+      const roomsList = document.getElementById('rooms-list');
+      const newRoomInput = document.getElementById('new-room-input');
+      const createRoomBtn = document.getElementById('create-room-btn');
+
+      socket.emit('authenticate', currentUser.id);
+
+      function sendMessage() {
+        const message = messageInput.value.trim();
+        if (message) {
+          socket.emit('send_message', { 
+            message: message,
+            room: currentRoom
+          });
+          messageInput.value = '';
+          socket.emit('typing', false);
+        }
+      }
+
+      sendButton.addEventListener('click', sendMessage);
+      
+      messageInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendMessage();
+        }
+        
+        if (!typingTimeout) {
+          socket.emit('typing', true);
+        }
+        
+        clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => {
+          socket.emit('typing', false);
+          typingTimeout = null;
+        }, 2000);
+      });
+
+      createRoomBtn.addEventListener('click', function() {
+        const roomName = newRoomInput.value.trim();
+        if (roomName) {
+          fetch('/chat/api/rooms', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ roomName })
+          })
+          .then(response => response.json())
+          .then(data => {
+            if (data.room) {
+              newRoomInput.value = '';
+              addRoom(data.room);
+              switchRoom(data.room);
+              socket.emit('new_room_created', data.room);
+            }
+          })
+          .catch(error => console.error('Error creating room:', error));
+        }
+      });
+
+      function renderMessage(msg) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${msg.user._id === currentUser.id ? 'own-message' : ''}`;
+        
+        const timestamp = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        
+        messageDiv.innerHTML = `
+          <div class="message-header">
+            <div class="user-info">
+              <span class="username">${msg.user.username || 'System'}</span>
+              <span class="timestamp">${timestamp}</span>
+            </div>
+          </div>
+          <div class="message-content">${msg.message}</div>
+        `;
+        
+        messagesContainer.appendChild(messageDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      }
+
+      function renderUserList(users) {
+        onlineUsersList.innerHTML = '';
+        users.forEach(user => {
+          const userItem = document.createElement('li');
+          userItem.textContent = user.username;
+          if (user.userId === currentUser.id) {
+            userItem.className = 'current-user';
+            userItem.textContent += ' (you)';
+          }
+          onlineUsersList.appendChild(userItem);
+        });
+      }
+
+      function addRoom(roomName) {
+        const existingRoom = Array.from(roomsList.children).find(el => 
+          el.getAttribute('data-room') === roomName
+        );
+        
+        if (!existingRoom) {
+          const roomItem = document.createElement('li');
+          roomItem.setAttribute('data-room', roomName);
+          roomItem.textContent = roomName;
+          roomItem.addEventListener('click', () => switchRoom(roomName));
+          roomsList.appendChild(roomItem);
+        }
+      }
+
+      function switchRoom(roomName) {
+        const previousRoom = currentRoom;
+        currentRoom = roomName;
+        
+        Array.from(roomsList.children).forEach(room => {
+          room.classList.remove('active');
+          if (room.getAttribute('data-room') === roomName) {
+            room.classList.add('active');
+          }
+        });
+        
+        messagesContainer.innerHTML = '';
+        
+        console.log(`Switching from ${previousRoom} to ${roomName}`);
+        
+        fetch(`/chat/api/messages/${roomName}`)
+          .then(response => response.json())
+          .then(messages => {
+            console.log(`Loaded ${messages.length} messages for room ${roomName}`);
+            messages.forEach(renderMessage);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+          })
+          .catch(error => console.error(`Error fetching messages for room ${roomName}:`, error));
+        
+        if (previousRoom) {
+          socket.emit('leave_room', previousRoom);
+        }
+        socket.emit('join_room', roomName);
+      }
+
+      socket.on('chat_history', (messages) => {
+        messagesContainer.innerHTML = '';
+        messages.forEach(renderMessage);
+      });
+
+      socket.on('new_message', (message) => {
+        if (message.room === currentRoom) {
+          renderMessage(message);
+        }
+      });
+
+      socket.on('users_online', (users) => {
+        renderUserList(users);
+      });
+
+      socket.on('user_connected', (user) => {
+        const systemMessage = {
+          user: { _id: 'system', username: 'System' },
+          message: `${user.username} has joined the chat`,
+          timestamp: new Date()
+        };
+        renderMessage(systemMessage);
+      });
+
+      socket.on('user_disconnected', (user) => {
+        const systemMessage = {
+          user: { _id: 'system', username: 'System' },
+          message: `${user.username} has left the chat`,
+          timestamp: new Date()
+        };
+        renderMessage(systemMessage);
+      });
+
+      socket.on('user_typing', (user) => {
+        if (user.isTyping) {
+          typingIndicator.textContent = `${user.username} is typing...`;
+        } else {
+          typingIndicator.textContent = '';
+        }
+      });
+
+      socket.on('user_joined', (data) => {
+        if (data.room === currentRoom) {
+          const systemMessage = {
+            user: { _id: 'system', username: 'System' },
+            message: `${data.username} has joined the room`,
+            timestamp: new Date()
+          };
+          renderMessage(systemMessage);
+        }
+      });
+
+      socket.on('error', (error) => {
+        console.error('Socket error:', error);
+        alert(error.message);
+      });
+      
+      socket.on('room_added', (data) => {
+        addRoom(data.room);
+      });
+
+      fetch('/chat/api/rooms')
+        .then(response => response.json())
+        .then(rooms => {
+          rooms.forEach(addRoom);
+        })
+        .catch(error => console.error('Error fetching rooms:', error));
+
+      switchRoom('general');
+    });
+  </script>
+</body>
+</html>

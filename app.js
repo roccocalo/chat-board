@@ -10,14 +10,31 @@ const passport = require('passport');
 const session = require('express-session');
 const LocalStrategy = require("passport-local").Strategy;
 const bcrypt = require('bcryptjs');
+const http = require('http');
+const socketIo = require('socket.io');
+
 
 require('dotenv').config();
 
 const indexRouter = require('./routes/index');
+const chatRouter = require('./routes/chat');
 
 const app = express();
+const server = http.createServer(app);
+const io = socketIo(server);
+
+require('./socket/chat-config')(io)
 
 mongoose.connect(process.env.MONGODB_URI);
+
+const sessionMiddleware = session({ 
+  secret: "cats", 
+  resave: false, 
+  saveUninitialized: true,
+  cookie: {
+    maxAge: 24 * 60 * 60 * 1000 
+  }
+});
 
 app.use(session({ secret: "cats", resave: false, saveUninitialized: true }));
 app.use(passport.initialize());
@@ -73,6 +90,7 @@ app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/', indexRouter);
+app.use('/chat', chatRouter);
 
 app.use(function (req, res, next) {
   next(createError(404));
@@ -88,8 +106,8 @@ app.use(function (err, req, res, next) {
 
 const port = process.env.PORT || 3000;
 
-app.listen(port, "0.0.0.0", function () {
+server.listen(port, "0.0.0.0", function () {
   console.log(`Server is running on port ${port}`);
 });
 
-module.exports = app;
+module.exports = {app, server, io};
