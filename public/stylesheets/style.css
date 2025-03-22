@@ -61,15 +61,13 @@ header nav.with-buttons a:hover {
 
 .welcome {
   background-color: #ecf0f1;
-  padding: 20px;
-  margin-bottom: 20px;
+  padding: 2px;
   border-bottom: 1px solid #ddd;
   text-align: center;
 }
 
 .welcome h2 {
   color: #2c3e50;
-  margin-top: 0;
 }
 
 button {

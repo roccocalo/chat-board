@@ -9,7 +9,7 @@
 </head>
 <body>
   <header>
-    <h1>Message Board Chat</h1>
+    <h1>Chat Board</h1>
     <nav>
       <a href="/">Home</a>
       <% if (user) { %>
@@ -73,6 +73,9 @@
       const newRoomInput = document.getElementById('new-room-input');
       const createRoomBtn = document.getElementById('create-room-btn');
 
+      const generalRoom = roomsList.querySelector('[data-room="general"]');
+      if (generalRoom) {   generalRoom.addEventListener('click', () => switchRoom('general'));  }
+      
       socket.emit('authenticate', currentUser.id);
 
       function sendMessage() {
