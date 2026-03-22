@@ -36,12 +36,43 @@
 
 3. Create a `.env` file in the root directory with the following variables:
    ```
-   MONGODB_URI='your_mongodb_connection_string'
+   MONGO_URI='your_mongodb_connection_string'
+   # Backward compatible alias still supported by the app:
+   # MONGODB_URI='your_mongodb_connection_string'
    ```
 
 4. Start the development server
    ```
-   npm run dev
+   npm run devstart
    ```
 
 5. Visit `http://localhost:3000` in your browser
+
+## Phase 1 Infrastructure (Docker + NGINX)
+
+This repository now includes:
+
+- `Dockerfile` for the Node.js backend
+- `nginx.conf` configured as reverse proxy/load balancer with `ip_hash` sticky sessions
+- `docker-compose.yml` with:
+  - 1 `nginx` container
+  - 2 app containers (`app1`, `app2`)
+  - 1 Redis container (`redis:7-alpine`)
+
+### Run the cluster
+
+1. Ensure your `.env` includes:
+   ```
+   MONGO_URI='your_mongodb_connection_string'
+   ```
+
+2. Build and start all services:
+   ```
+   docker compose up --build
+   ```
+
+3. Open the app through NGINX:
+   ```
+   http://localhost:80
+   http://localhost:8080
+   ```

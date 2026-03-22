@@ -25,7 +25,7 @@ const io = socketIo(server);
 
 require('./socket/chat-config')(io)
 
-mongoose.connect(process.env.MONGODB_URI);
+mongoose.connect(process.env.MONGO_URI || process.env.MONGODB_URI);
 
 const sessionMiddleware = session({ 
   secret: "cats", 

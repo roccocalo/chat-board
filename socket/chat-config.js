@@ -1,8 +1,50 @@
 const ChatMessage = require('../models/chatMessageSchema');
 const User = require('../models/userSchema');
+const { createAdapter } = require('@socket.io/redis-adapter');
+const { createClient } = require('redis');
 
 module.exports = function(io) {
-  const onlineUsers = new Map();
+  const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+  const onlineUsersKey = 'online_users';
+  const pubClient = createClient({ url: redisUrl });
+  const subClient = pubClient.duplicate();
+  const presenceClient = pubClient.duplicate();
+
+  let redisReady = false;
+
+  const loadOnlineUsers = async () => {
+    if (!redisReady) {
+      return [];
+    }
+
+    const userIds = await presenceClient.sMembers(onlineUsersKey);
+    if (userIds.length === 0) {
+      return [];
+    }
+
+    const users = await User.find({ _id: { $in: userIds } })
+      .select('_id username')
+      .lean();
+
+    const userMap = new Map(users.map((user) => [String(user._id), user.username]));
+
+    return userIds
+      .map((userId) => ({
+        userId,
+        username: userMap.get(String(userId)) || 'Unknown user'
+      }))
+      .filter((user) => user.username !== 'Unknown user');
+  };
+
+  Promise.all([pubClient.connect(), subClient.connect(), presenceClient.connect()])
+    .then(() => {
+      io.adapter(createAdapter(pubClient, subClient));
+      redisReady = true;
+      console.log('[socket] Redis adapter connected');
+    })
+    .catch((error) => {
+      console.error('[socket] Redis adapter setup failed:', error);
+    });
 
   io.on('connection', (socket) => {
     console.log('New client connected');
@@ -13,13 +55,11 @@ module.exports = function(io) {
         const user = await User.findById(userId);
         if (user) {
           currentUser = user;
-          
-          onlineUsers.set(socket.id, {
-            userId: user._id,
-            username: user.username
-          });
-          
-          io.emit('users_online', Array.from(onlineUsers.values()));
+
+          if (redisReady) {
+            await presenceClient.sAdd(onlineUsersKey, String(user._id));
+            io.emit('users_online', await loadOnlineUsers());
+          }
           
           socket.broadcast.emit('user_connected', {
             userId: user._id,
@@ -101,14 +141,28 @@ module.exports = function(io) {
 
     socket.on('disconnect', () => {
       console.log('Client disconnected');
-      if (onlineUsers.has(socket.id)) {
-        const user = onlineUsers.get(socket.id);
-        onlineUsers.delete(socket.id);
+      if (currentUser) {
+        const disconnectedUser = {
+          userId: String(currentUser._id),
+          username: currentUser.username
+        };
+
+        if (redisReady) {
+          presenceClient.sRem(onlineUsersKey, String(currentUser._id)).catch((error) => {
+            console.error('Failed to remove user from online set:', error);
+          });
+        }
+
         io.emit('user_disconnected', {
-          userId: user.userId,
-          username: user.username
+          userId: disconnectedUser.userId,
+          username: disconnectedUser.username
         });
-        io.emit('users_online', Array.from(onlineUsers.values()));
+
+        if (redisReady) {
+          loadOnlineUsers()
+            .then((users) => io.emit('users_online', users))
+            .catch((error) => console.error('Failed to refresh online users:', error));
+        }
       }
     });
   });
