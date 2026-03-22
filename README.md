@@ -50,10 +50,10 @@ Traffic flow:
 
 ## Basic Features
 
-User authentication with passportJS
-Live chat implemented using Socket.Io
-Securing passwords using bcryptjs
-Schema validation using Mongoose 
+1. User authentication with passportJS.
+2. Live chat implemented using Socket.Io.
+3. Securing passwords using bcryptjs.
+4. Schema validation using Mongoose.
 
 ## Local Run and Demo
 
