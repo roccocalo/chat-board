@@ -1,78 +1,109 @@
+# Chat-Board 2.0: Secure Distributed Messaging
+
 "ChatBoard" is a private clubhouse where visitors can view messages, but only registered members can post content and see creator information. Members enjoy a real-time chat system with public and custom rooms for immediate interaction.
 
-## Built With
+This project started as a monolithic Node.js chat toy app and was redesigned as a distributed, security-focused system.
 
-- NodeJS
-- ExpressJS
-- MongoDB
-- MongooseJS
+It now showcases four production-style engineering themes:
 
-## Features
+1. Distributed infrastructure with NGINX load balancing and Dockerized multi-instance Node services.
+2. Horizontal WebSocket scaling with Redis Pub/Sub and shared online presence.
+3. High-read optimization with Redis write-through caching for room history.
+4. End-to-end encrypted chat payloads using browser-side Web Crypto, with ciphertext-only storage in MongoDB.
 
-- User authentication with [passportJS](https://www.passportjs.org/)
-- Live chat implemented using [Socket.Io](https://socket.io/)
-- Securing passwords using [bcryptjs](https://www.npmjs.com/package/bcrypt)
-- Schema validation using Mongoose
+## Tech Stack
 
-## Screenshot
+- Node.js
+- Express
+- Socket.IO
+- Redis
+- MongoDB + Mongoose
+- NGINX
+- Docker + Docker Compose
+- Web Crypto API (browser)
 
-![alt text](./public/preview/index.PNG)
-![alt text](./public/preview/chat.PNG)
-![alt text](./public/preview/mobile.png)
+## Screenshots
 
+![Home](./public/preview/index.PNG)
+![Chat](./public/preview/chat.PNG)
+![Mobile](./public/preview/mobile.png)
 
-### Installation
+## Final Architecture
 
-1. Clone the repository
-   ```
-   git clone https://github.com/roccocalo/chatboard.git
-   cd chatboard
-   ```
+The runtime topology is:
 
-2. Install dependencies
-   ```
-   npm install
-   ```
+1. NGINX container as reverse proxy and load balancer.
+2. Two backend app containers (`app1`, `app2`) running the same Node.js service.
+3. One Redis container used for:
+   - Socket.IO adapter Pub/Sub
+   - global online user state via Redis Sets
+   - message cache via Redis Lists
+4. MongoDB (external URI) for persistent user and message data.
 
-3. Create a `.env` file in the root directory with the following variables:
-   ```
-   MONGO_URI='your_mongodb_connection_string'
-   # Backward compatible alias still supported by the app:
-   # MONGODB_URI='your_mongodb_connection_string'
-   ```
+Traffic flow:
 
-4. Start the development server
-   ```
-   npm run devstart
-   ```
+1. Browser connects to NGINX on port 80 or 8080.
+2. NGINX forwards HTTP and WebSocket traffic to either app instance using sticky sessions (`ip_hash`).
+3. Socket.IO Redis adapter propagates events across both app instances.
+4. Messages persist in MongoDB and are cached in Redis.
+5. Message content is encrypted in the browser before being sent.
 
-5. Visit `http://localhost:3000` in your browser
+## Basic Features
 
-## Phase 1 Infrastructure (Docker + NGINX)
+User authentication with passportJS
+Live chat implemented using Socket.Io
+Securing passwords using bcryptjs
+Schema validation using Mongoose 
 
-This repository now includes:
+## Local Run and Demo
 
-- `Dockerfile` for the Node.js backend
-- `nginx.conf` configured as reverse proxy/load balancer with `ip_hash` sticky sessions
-- `docker-compose.yml` with:
-  - 1 `nginx` container
-  - 2 app containers (`app1`, `app2`)
-  - 1 Redis container (`redis:7-alpine`)
+This project is intentionally local-demo focused and not deployed publicly.
 
-### Run the cluster
+1. Create `.env` in project root:
 
-1. Ensure your `.env` includes:
-   ```
-   MONGO_URI='your_mongodb_connection_string'
-   ```
+```bash
+MONGO_URI='your_mongodb_connection_string'
+# Optional backward-compatible alias:
+# MONGODB_URI='your_mongodb_connection_string'
+```
 
-2. Build and start all services:
-   ```
-   docker compose up --build
-   ```
+2. Build and start cluster:
 
-3. Open the app through NGINX:
-   ```
-   http://localhost:80
-   http://localhost:8080
-   ```
+```bash
+docker compose up -d --build
+```
+
+3. Open app:
+
+```text
+http://localhost:8080
+```
+
+4. Demo checklist:
+
+1. Register two users in two different browsers (or browser + private tab).
+2. Open chat room in both sessions.
+3. Send messages both ways and verify both clients can read decrypted text.
+4. Inspect MongoDB and confirm `message` field stores encrypted payload, not plaintext.
+5. (Optional) Check Redis cache size for room history:
+
+```bash
+docker exec -it chat_redis redis-cli LLEN room:general:messages
+```
+
+## Security Model Summary
+
+What this protects:
+
+1. Database compromise exposure is reduced because message content at rest is encrypted.
+2. Backend operators do not need plaintext to store and relay messages.
+
+Current practical limitation:
+
+1. Key envelope coverage is based on available recipients at send time.
+2. A user who was not included in older message envelopes may not decrypt older history.
+
+Planned hardening path:
+
+1. Persist room membership key envelopes per user (server stores encrypted key blobs only).
+2. Allow member devices to recover room keys on login and decrypt full backlog.
