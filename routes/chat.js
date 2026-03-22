@@ -1,6 +1,22 @@
 const express = require('express');
 const router = express.Router();
 const ChatMessage = require('../models/chatMessageSchema');
+const { createClient } = require('redis');
+
+const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+const cacheClient = createClient({ url: redisUrl });
+let redisReady = false;
+
+cacheClient.connect()
+  .then(() => {
+    redisReady = true;
+    console.log('[chat-route] Redis cache connected');
+  })
+  .catch((error) => {
+    console.error('[chat-route] Redis cache connection failed:', error);
+  });
+
+const roomMessagesKey = (room) => `room:${room}:messages`;
 
 function isAuthenticated(req, res, next) {
   if (req.isAuthenticated()) {
@@ -17,11 +33,42 @@ router.get('/api/messages/:room?', isAuthenticated, async (req, res) => {
   try {
     const room = req.params.room || 'general';
     const limit = parseInt(req.query.limit) || 50;
-    const before = req.query.before ? new Date(req.query.before) : new Date();
-    
+    const before = req.query.before ? new Date(req.query.before) : null;
+
+    if (redisReady) {
+      const cachedRaw = await cacheClient.lRange(roomMessagesKey(room), 0, 49);
+
+      if (cachedRaw.length > 0) {
+        const cachedMessages = cachedRaw
+          .map((msg) => {
+            try {
+              return JSON.parse(msg);
+            } catch (error) {
+              return null;
+            }
+          })
+          .filter(Boolean);
+
+        if (cachedMessages.length > 0) {
+          const oldestCached = cachedMessages[cachedMessages.length - 1];
+          const oldestCachedTimestamp = new Date(oldestCached.timestamp);
+          const isOlderPaginationRequest = before && before <= oldestCachedTimestamp;
+
+          if (!isOlderPaginationRequest) {
+            const filteredMessages = before
+              ? cachedMessages.filter((msg) => new Date(msg.timestamp) < before)
+              : cachedMessages;
+
+            const limited = filteredMessages.slice(0, limit);
+            return res.json(limited.reverse());
+          }
+        }
+      }
+    }
+
     const messages = await ChatMessage.find({
       room: room,
-      timestamp: { $lt: before }
+      timestamp: { $lt: before || new Date() }
     })
     .sort({ timestamp: -1 })
     .limit(limit)

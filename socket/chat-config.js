@@ -6,6 +6,7 @@ const { createClient } = require('redis');
 module.exports = function(io) {
   const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
   const onlineUsersKey = 'online_users';
+  const roomMessagesKey = (room) => `room:${room}:messages`;
   const pubClient = createClient({ url: redisUrl });
   const subClient = pubClient.duplicate();
   const presenceClient = pubClient.duplicate();
@@ -98,6 +99,16 @@ module.exports = function(io) {
         const populatedMessage = await ChatMessage.findById(chatMessage._id)
           .populate('user', 'username')
           .lean();
+
+        if (redisReady) {
+          const cacheKey = roomMessagesKey(populatedMessage.room || 'general');
+          try {
+            await presenceClient.lPush(cacheKey, JSON.stringify(populatedMessage));
+            await presenceClient.lTrim(cacheKey, 0, 49);
+          } catch (cacheError) {
+            console.error('Redis write-through cache failed:', cacheError);
+          }
+        }
         
         io.emit('new_message', populatedMessage);
       } catch (error) {
