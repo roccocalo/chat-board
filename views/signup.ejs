@@ -18,7 +18,7 @@
 
   <div class="form-container">
     <h1>Sign Up</h1>
-    <form action="/signup" method="post">
+    <form id="signup-form" action="/signup" method="post">
       <div class="form-group">
         <label for="username">Username:</label>
         <input type="text" id="username" name="username" required>
@@ -39,6 +39,7 @@
           </p>
         <% }) %>
       <% } %>
+      <input type="hidden" id="publicKey" name="publicKey">
       <div class="form-actions">
         <button type="submit">Sign Up</button>
       </div>
@@ -48,6 +49,70 @@
       <button><a href="/login">Login</a></button>
     </div>
   </div>
+
+  <script>
+    const toBase64 = (buffer) => btoa(String.fromCharCode(...new Uint8Array(buffer)));
+
+    async function exportPublicKey(spkiKey) {
+      const exported = await crypto.subtle.exportKey('spki', spkiKey);
+      return toBase64(exported);
+    }
+
+    async function exportPrivateKey(pkcs8Key) {
+      const exported = await crypto.subtle.exportKey('pkcs8', pkcs8Key);
+      return toBase64(exported);
+    }
+
+    async function ensureKeyPairForUser(username) {
+      const safeUsername = username.trim().toLowerCase();
+      const privateKeyStorageKey = `chat_private_key_${safeUsername}`;
+      const publicKeyStorageKey = `chat_public_key_${safeUsername}`;
+
+      const existingPublicKey = localStorage.getItem(publicKeyStorageKey);
+      const existingPrivateKey = localStorage.getItem(privateKeyStorageKey);
+      if (existingPublicKey && existingPrivateKey) {
+        return existingPublicKey;
+      }
+
+      const keyPair = await crypto.subtle.generateKey(
+        {
+          name: 'RSA-OAEP',
+          modulusLength: 2048,
+          publicExponent: new Uint8Array([1, 0, 1]),
+          hash: 'SHA-256'
+        },
+        true,
+        ['encrypt', 'decrypt']
+      );
+
+      const publicKey = await exportPublicKey(keyPair.publicKey);
+      const privateKey = await exportPrivateKey(keyPair.privateKey);
+
+      localStorage.setItem(publicKeyStorageKey, publicKey);
+      localStorage.setItem(privateKeyStorageKey, privateKey);
+
+      return publicKey;
+    }
+
+    document.getElementById('signup-form').addEventListener('submit', async (event) => {
+      const username = document.getElementById('username').value;
+      const publicKeyInput = document.getElementById('publicKey');
+
+      if (!username || !window.crypto || !window.crypto.subtle) {
+        return;
+      }
+
+      event.preventDefault();
+
+      try {
+        publicKeyInput.value = await ensureKeyPairForUser(username);
+        event.target.submit();
+      } catch (error) {
+        console.error('Key generation failed:', error);
+        alert('Could not initialize end-to-end encryption keys. Please try again.');
+      }
+    });
+  </script>
 </body>
 
 </html>

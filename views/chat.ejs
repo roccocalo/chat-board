@@ -59,8 +59,22 @@
         username: '<%= user.username %>'
       };
 
+      const textEncoder = new TextEncoder();
+      const textDecoder = new TextDecoder();
+
+      const toBase64 = (buffer) => btoa(String.fromCharCode(...new Uint8Array(buffer)));
+      const fromBase64 = (value) => Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
+
+      const roomKeyStorageKey = (room) => `chat_room_key_${room}`;
+      const publicKeyStorageKey = `chat_public_key_${currentUser.username.toLowerCase()}`;
+      const privateKeyStorageKey = `chat_private_key_${currentUser.username.toLowerCase()}`;
+
       let currentRoom = 'general';
       let typingTimeout = null;
+      let onlineUsers = [];
+
+      const publicKeyCache = new Map();
+      let privateCryptoKey = null;
 
       const socket = io();
 
@@ -73,35 +87,308 @@
       const newRoomInput = document.getElementById('new-room-input');
       const createRoomBtn = document.getElementById('create-room-btn');
 
-      const generalRoom = roomsList.querySelector('[data-room="general"]');
-      if (generalRoom) {   generalRoom.addEventListener('click', () => switchRoom('general'));  }
-      
-      socket.emit('authenticate', currentUser.id);
+      function parseEncryptedPayload(value) {
+        if (!value || typeof value !== 'string') {
+          return null;
+        }
 
-      function sendMessage() {
+        try {
+          const parsed = JSON.parse(value);
+          if (parsed && parsed.alg === 'AES-GCM' && parsed.iv && parsed.data) {
+            return parsed;
+          }
+        } catch (_error) {
+          return null;
+        }
+
+        return null;
+      }
+
+      async function ensureLocalUserKeyPair() {
+        const existingPublic = localStorage.getItem(publicKeyStorageKey);
+        const existingPrivate = localStorage.getItem(privateKeyStorageKey);
+        if (existingPublic && existingPrivate) {
+          return existingPublic;
+        }
+
+        if (!window.crypto || !window.crypto.subtle) {
+          throw new Error('Web Crypto API not available in this browser.');
+        }
+
+        const keyPair = await crypto.subtle.generateKey(
+          {
+            name: 'RSA-OAEP',
+            modulusLength: 2048,
+            publicExponent: new Uint8Array([1, 0, 1]),
+            hash: 'SHA-256'
+          },
+          true,
+          ['encrypt', 'decrypt']
+        );
+
+        const exportedPublic = await crypto.subtle.exportKey('spki', keyPair.publicKey);
+        const exportedPrivate = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
+
+        const publicKeyBase64 = toBase64(exportedPublic);
+        localStorage.setItem(publicKeyStorageKey, publicKeyBase64);
+        localStorage.setItem(privateKeyStorageKey, toBase64(exportedPrivate));
+
+        return publicKeyBase64;
+      }
+
+      async function syncPublicKey() {
+        try {
+          const publicKey = await ensureLocalUserKeyPair();
+          await fetch('/chat/api/users/me/public-key', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ publicKey })
+          });
+        } catch (error) {
+          console.error('Failed to sync user public key:', error);
+        }
+      }
+
+      async function getOwnPrivateKey() {
+        if (privateCryptoKey) {
+          return privateCryptoKey;
+        }
+
+        const privateKeyBase64 = localStorage.getItem(privateKeyStorageKey);
+        if (!privateKeyBase64) {
+          return null;
+        }
+
+        privateCryptoKey = await crypto.subtle.importKey(
+          'pkcs8',
+          fromBase64(privateKeyBase64),
+          {
+            name: 'RSA-OAEP',
+            hash: 'SHA-256'
+          },
+          false,
+          ['decrypt']
+        );
+
+        return privateCryptoKey;
+      }
+
+      function getStoredRoomKeyBytes(roomName) {
+        const encoded = localStorage.getItem(roomKeyStorageKey(roomName));
+        return encoded ? fromBase64(encoded) : null;
+      }
+
+      function ensureRoomKeyBytes(roomName) {
+        const existing = getStoredRoomKeyBytes(roomName);
+        if (existing) {
+          return existing;
+        }
+
+        const generated = crypto.getRandomValues(new Uint8Array(32));
+        localStorage.setItem(roomKeyStorageKey(roomName), toBase64(generated));
+        return generated;
+      }
+
+      async function importAesKey(rawBytes, usages) {
+        return crypto.subtle.importKey(
+          'raw',
+          rawBytes,
+          { name: 'AES-GCM' },
+          false,
+          usages
+        );
+      }
+
+      async function getUserPublicCryptoKey(userId) {
+        const keyId = String(userId);
+        if (publicKeyCache.has(keyId)) {
+          return publicKeyCache.get(keyId);
+        }
+
+        const response = await fetch(`/chat/api/users/${keyId}/public-key`);
+        if (!response.ok) {
+          return null;
+        }
+
+        const payload = await response.json();
+        if (!payload.publicKey) {
+          return null;
+        }
+
+        const imported = await crypto.subtle.importKey(
+          'spki',
+          fromBase64(payload.publicKey),
+          {
+            name: 'RSA-OAEP',
+            hash: 'SHA-256'
+          },
+          false,
+          ['encrypt']
+        );
+
+        publicKeyCache.set(keyId, imported);
+        return imported;
+      }
+
+      async function buildKeyEnvelope(roomName, recipientIds) {
+        const envelope = {};
+        const roomKeyBytes = ensureRoomKeyBytes(roomName);
+
+        for (const recipientId of recipientIds) {
+          try {
+            const publicKey = await getUserPublicCryptoKey(recipientId);
+            if (!publicKey) {
+              continue;
+            }
+
+            const wrapped = await crypto.subtle.encrypt(
+              { name: 'RSA-OAEP' },
+              publicKey,
+              roomKeyBytes
+            );
+
+            envelope[String(recipientId)] = toBase64(wrapped);
+          } catch (error) {
+            console.error(`Failed to wrap room key for user ${recipientId}:`, error);
+          }
+        }
+
+        return envelope;
+      }
+
+      async function encryptMessage(plaintext, roomName) {
+        const roomKeyBytes = ensureRoomKeyBytes(roomName);
+        const key = await importAesKey(roomKeyBytes, ['encrypt']);
+
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encrypted = await crypto.subtle.encrypt(
+          {
+            name: 'AES-GCM',
+            iv
+          },
+          key,
+          textEncoder.encode(plaintext)
+        );
+
+        const recipientIds = new Set(onlineUsers.map((user) => String(user.userId)));
+        recipientIds.add(String(currentUser.id));
+
+        const keyEnvelope = await buildKeyEnvelope(roomName, Array.from(recipientIds));
+
+        return JSON.stringify({
+          v: 2,
+          alg: 'AES-GCM',
+          iv: toBase64(iv),
+          data: toBase64(encrypted),
+          keys: keyEnvelope
+        });
+      }
+
+      async function maybeRecoverRoomKeyFromEnvelope(roomName, encryptedPayload) {
+        if (!encryptedPayload || encryptedPayload.v < 2 || !encryptedPayload.keys) {
+          return getStoredRoomKeyBytes(roomName);
+        }
+
+        const wrapped = encryptedPayload.keys[String(currentUser.id)];
+        if (!wrapped) {
+          return getStoredRoomKeyBytes(roomName);
+        }
+
+        const privateKey = await getOwnPrivateKey();
+        if (!privateKey) {
+          return getStoredRoomKeyBytes(roomName);
+        }
+
+        try {
+          const decryptedRoomKey = await crypto.subtle.decrypt(
+            { name: 'RSA-OAEP' },
+            privateKey,
+            fromBase64(wrapped)
+          );
+
+          const decryptedRoomKeyBytes = new Uint8Array(decryptedRoomKey);
+          localStorage.setItem(roomKeyStorageKey(roomName), toBase64(decryptedRoomKeyBytes));
+          return decryptedRoomKeyBytes;
+        } catch (error) {
+          return getStoredRoomKeyBytes(roomName);
+        }
+      }
+
+      async function decryptMessage(payload, roomName) {
+        const encryptedPayload = parseEncryptedPayload(payload);
+        if (!encryptedPayload) {
+          return payload;
+        }
+
+        const roomKeyBytes = await maybeRecoverRoomKeyFromEnvelope(roomName, encryptedPayload);
+        if (!roomKeyBytes) {
+          return '[Encrypted message: room key missing on this device]';
+        }
+
+        try {
+          const key = await importAesKey(roomKeyBytes, ['decrypt']);
+
+          const decrypted = await crypto.subtle.decrypt(
+            {
+              name: 'AES-GCM',
+              iv: fromBase64(encryptedPayload.iv)
+            },
+            key,
+            fromBase64(encryptedPayload.data)
+          );
+
+          return textDecoder.decode(decrypted);
+        } catch (error) {
+          return '[Unable to decrypt message with current room key]';
+        }
+      }
+
+      const generalRoom = roomsList.querySelector('[data-room="general"]');
+      if (generalRoom) {
+        generalRoom.addEventListener('click', () => {
+          switchRoom('general');
+        });
+      }
+
+      socket.emit('authenticate', currentUser.id);
+      syncPublicKey();
+
+      async function sendMessage() {
         const message = messageInput.value.trim();
-        if (message) {
-          socket.emit('send_message', { 
-            message: message,
+        if (!message) {
+          return;
+        }
+
+        try {
+          const encryptedMessage = await encryptMessage(message, currentRoom);
+          socket.emit('send_message', {
+            message: encryptedMessage,
             room: currentRoom
           });
           messageInput.value = '';
           socket.emit('typing', false);
+        } catch (error) {
+          console.error('Encryption failed:', error);
+          alert('Message encryption failed.');
         }
       }
 
-      sendButton.addEventListener('click', sendMessage);
-      
+      sendButton.addEventListener('click', () => {
+        sendMessage();
+      });
+
       messageInput.addEventListener('keypress', function(e) {
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
           sendMessage();
         }
-        
+
         if (!typingTimeout) {
           socket.emit('typing', true);
         }
-        
+
         clearTimeout(typingTimeout);
         typingTimeout = setTimeout(() => {
           socket.emit('typing', false);
@@ -132,22 +419,37 @@
         }
       });
 
-      function renderMessage(msg) {
+      async function renderMessage(msg) {
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${msg.user._id === currentUser.id ? 'own-message' : ''}`;
-        
+
         const timestamp = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        
-        messageDiv.innerHTML = `
-          <div class="message-header">
-            <div class="user-info">
-              <span class="username">${msg.user.username || 'System'}</span>
-              <span class="timestamp">${timestamp}</span>
-            </div>
-          </div>
-          <div class="message-content">${msg.message}</div>
-        `;
-        
+        const decryptedMessage = await decryptMessage(msg.message, msg.room || currentRoom);
+
+        const headerDiv = document.createElement('div');
+        headerDiv.className = 'message-header';
+
+        const userInfoDiv = document.createElement('div');
+        userInfoDiv.className = 'user-info';
+
+        const usernameSpan = document.createElement('span');
+        usernameSpan.className = 'username';
+        usernameSpan.textContent = msg.user.username || 'System';
+
+        const timestampSpan = document.createElement('span');
+        timestampSpan.className = 'timestamp';
+        timestampSpan.textContent = timestamp;
+
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        contentDiv.textContent = decryptedMessage;
+
+        userInfoDiv.appendChild(usernameSpan);
+        userInfoDiv.appendChild(timestampSpan);
+        headerDiv.appendChild(userInfoDiv);
+        messageDiv.appendChild(headerDiv);
+        messageDiv.appendChild(contentDiv);
+
         messagesContainer.appendChild(messageDiv);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
       }
@@ -166,10 +468,10 @@
       }
 
       function addRoom(roomName) {
-        const existingRoom = Array.from(roomsList.children).find(el => 
+        const existingRoom = Array.from(roomsList.children).find(el =>
           el.getAttribute('data-room') === roomName
         );
-        
+
         if (!existingRoom) {
           const roomItem = document.createElement('li');
           roomItem.setAttribute('data-room', roomName);
@@ -179,67 +481,71 @@
         }
       }
 
-      function switchRoom(roomName) {
+      async function switchRoom(roomName) {
         const previousRoom = currentRoom;
         currentRoom = roomName;
-        
+
         Array.from(roomsList.children).forEach(room => {
           room.classList.remove('active');
           if (room.getAttribute('data-room') === roomName) {
             room.classList.add('active');
           }
         });
-        
+
         messagesContainer.innerHTML = '';
-        
-        console.log(`Switching from ${previousRoom} to ${roomName}`);
-        
+
         fetch(`/chat/api/messages/${roomName}`)
           .then(response => response.json())
-          .then(messages => {
-            console.log(`Loaded ${messages.length} messages for room ${roomName}`);
-            messages.forEach(renderMessage);
+          .then(async (messages) => {
+            for (const message of messages) {
+              await renderMessage(message);
+            }
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
           })
           .catch(error => console.error(`Error fetching messages for room ${roomName}:`, error));
-        
+
         if (previousRoom) {
           socket.emit('leave_room', previousRoom);
         }
         socket.emit('join_room', roomName);
       }
 
-      socket.on('chat_history', (messages) => {
+      socket.on('chat_history', async (messages) => {
         messagesContainer.innerHTML = '';
-        messages.forEach(renderMessage);
+        for (const message of messages) {
+          await renderMessage(message);
+        }
       });
 
-      socket.on('new_message', (message) => {
+      socket.on('new_message', async (message) => {
         if (message.room === currentRoom) {
-          renderMessage(message);
+          await renderMessage(message);
         }
       });
 
       socket.on('users_online', (users) => {
-        renderUserList(users);
+        onlineUsers = users || [];
+        renderUserList(onlineUsers);
       });
 
-      socket.on('user_connected', (user) => {
+      socket.on('user_connected', async (user) => {
         const systemMessage = {
           user: { _id: 'system', username: 'System' },
           message: `${user.username} has joined the chat`,
-          timestamp: new Date()
+          timestamp: new Date(),
+          room: currentRoom
         };
-        renderMessage(systemMessage);
+        await renderMessage(systemMessage);
       });
 
-      socket.on('user_disconnected', (user) => {
+      socket.on('user_disconnected', async (user) => {
         const systemMessage = {
           user: { _id: 'system', username: 'System' },
           message: `${user.username} has left the chat`,
-          timestamp: new Date()
+          timestamp: new Date(),
+          room: currentRoom
         };
-        renderMessage(systemMessage);
+        await renderMessage(systemMessage);
       });
 
       socket.on('user_typing', (user) => {
@@ -250,14 +556,15 @@
         }
       });
 
-      socket.on('user_joined', (data) => {
+      socket.on('user_joined', async (data) => {
         if (data.room === currentRoom) {
           const systemMessage = {
             user: { _id: 'system', username: 'System' },
             message: `${data.username} has joined the room`,
-            timestamp: new Date()
+            timestamp: new Date(),
+            room: currentRoom
           };
-          renderMessage(systemMessage);
+          await renderMessage(systemMessage);
         }
       });
 
@@ -265,7 +572,7 @@
         console.error('Socket error:', error);
         alert(error.message);
       });
-      
+
       socket.on('room_added', (data) => {
         addRoom(data.room);
       });

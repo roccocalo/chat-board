@@ -4,7 +4,8 @@ const Schema = mongoose.Schema;
 const chatMessageSchema = new Schema({
     message: { 
         type: String, 
-        required: [true, 'Message content is required'] 
+        required: [true, 'Message content is required'],
+        maxlength: 20000
     },
     user: { 
         type: mongoose.Schema.Types.ObjectId, 

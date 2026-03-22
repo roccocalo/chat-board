@@ -29,6 +29,11 @@ router.post('/login',
       if (!user) { return res.status(400).render('login', { user: req.user, message: info.message }); }
       req.logIn(user, (err) => {
         if (err) { return next(err); }
+        if (req.body.publicKey) {
+          User.findByIdAndUpdate(user._id, { publicKey: req.body.publicKey }).catch((updateError) => {
+            console.error('Failed to update public key on login:', updateError);
+          });
+        }
         return res.redirect('/');
       });
     })(req, res, next);
@@ -57,6 +62,7 @@ router.post('/signup',
       const newUser = new User({
         username: req.body.username,
         password: hashedPassword,
+        publicKey: req.body.publicKey || null,
       });
       await newUser.save();
       req.logIn(newUser, (err) => {

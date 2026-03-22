@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const ChatMessage = require('../models/chatMessageSchema');
+const User = require('../models/userSchema');
 const { createClient } = require('redis');
 
 const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
@@ -89,6 +90,40 @@ router.get('/api/rooms', isAuthenticated, async (req, res) => {
   } catch (error) {
     console.error('Error fetching rooms:', error);
     res.status(500).json({ error: 'Failed to fetch rooms' });
+  }
+});
+
+router.get('/api/users/:userId/public-key', isAuthenticated, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId).select('_id username publicKey').lean();
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      userId: user._id,
+      username: user.username,
+      publicKey: user.publicKey || null,
+    });
+  } catch (error) {
+    console.error('Error fetching user public key:', error);
+    res.status(500).json({ error: 'Failed to fetch public key' });
+  }
+});
+
+router.post('/api/users/me/public-key', isAuthenticated, async (req, res) => {
+  try {
+    const { publicKey } = req.body;
+
+    if (!publicKey || typeof publicKey !== 'string') {
+      return res.status(400).json({ error: 'publicKey is required' });
+    }
+
+    await User.findByIdAndUpdate(req.user._id, { publicKey });
+    res.status(204).send();
+  } catch (error) {
+    console.error('Error updating user public key:', error);
+    res.status(500).json({ error: 'Failed to update public key' });
   }
 });
 
