@@ -4,6 +4,7 @@ const path = require('path');
 const cookieParser = require('cookie-parser');
 const logger = require('morgan');
 const cors = require('cors');
+const helmet = require('helmet');
 const mongoose = require('mongoose');
 const User = require('./models/userSchema');
 const passport = require('passport');
@@ -82,6 +83,17 @@ app.use((req, res, next) => {
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'ejs');
 
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      connectSrc: ["'self'", "ws:", "wss:"],
+      imgSrc: ["'self'", "data:"],
+    }
+  }
+}));
 app.use(cors());
 app.use(logger('dev'));
 app.use(express.json());

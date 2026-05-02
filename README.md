@@ -4,12 +4,13 @@
 
 This project started as a monolithic Node.js chat toy app and was redesigned as a distributed, security-focused system.
 
-It now showcases four production-style engineering themes:
+It now showcases five production-style engineering themes:
 
 1. Distributed infrastructure with NGINX load balancing and Dockerized multi-instance Node services.
 2. Horizontal WebSocket scaling with Redis Pub/Sub and shared online presence.
 3. High-read optimization with Redis write-through caching for room history.
 4. End-to-end encrypted chat payloads using browser-side Web Crypto, with ciphertext-only storage in MongoDB.
+5. XSS hardening across all user input paths.
 
 ## Tech Stack
 

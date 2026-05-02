@@ -1,8 +1,12 @@
 const express = require('express');
 const router = express.Router();
+const { body, validationResult } = require('express-validator');
+const sanitizeHtml = require('sanitize-html');
 const ChatMessage = require('../models/chatMessageSchema');
 const User = require('../models/userSchema');
 const { createClient } = require('redis');
+
+const stripHtml = (str) => sanitizeHtml(str, { allowedTags: [], allowedAttributes: {} });
 
 const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 const cacheClient = createClient({ url: redisUrl });
@@ -127,13 +131,20 @@ router.post('/api/users/me/public-key', isAuthenticated, async (req, res) => {
   }
 });
 
-router.post('/api/rooms', isAuthenticated, async (req, res) => {
+router.post('/api/rooms', isAuthenticated,
+  body('roomName')
+    .notEmpty().withMessage('Room name is required')
+    .isLength({ max: 50 }).withMessage('Room name must be 50 characters or fewer')
+    .trim()
+    .escape(),
+  async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ error: errors.array()[0].msg });
+  }
+
   try {
-    const { roomName } = req.body;
-    
-    if (!roomName) {
-      return res.status(400).json({ error: 'Room name is required' });
-    }
+    const roomName = stripHtml(req.body.roomName);
     
     const chatMessage = new ChatMessage({
       message: `Room "${roomName}" created by ${req.user.username}`,

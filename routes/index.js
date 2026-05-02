@@ -3,8 +3,11 @@ const router = express.Router();
 const passport = require('passport');
 const bcrypt = require('bcryptjs');
 const { body, validationResult } = require('express-validator');
+const sanitizeHtml = require('sanitize-html');
 const User = require('../models/userSchema');
 const Message = require('../models/messageSchema');
+
+const stripHtml = (str) => sanitizeHtml(str, { allowedTags: [], allowedAttributes: {} });
 
 router.get('/', async (req, res) => {
   const messages = await Message.find().populate('user');;
@@ -45,7 +48,7 @@ router.get('/signup', (req, res) => {
 })
 
 router.post('/signup',
-  body('username').notEmpty().withMessage('Username must not be empty.'),
+  body('username').notEmpty().withMessage('Username must not be empty.').trim().escape(),
   body('password').notEmpty().withMessage('Password must not be empty.'),
   body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters long.'),
   async (req, res, next) => {
@@ -87,8 +90,8 @@ router.post('/new-message',
     }
     try {
       const message = new Message({
-        title: req.body.title,
-        message: req.body.message,
+        title: stripHtml(req.body.title),
+        message: stripHtml(req.body.message),
         user: req.user._id,
         timestamp: Date.now()
       });

@@ -85,7 +85,17 @@ module.exports = function(io) {
         socket.emit('error', { message: 'You must be logged in to send messages' });
         return;
       }
-      
+
+      if (!messageData.message || typeof messageData.message !== 'string') {
+        socket.emit('error', { message: 'Invalid message' });
+        return;
+      }
+
+      if (messageData.message.length > 20000) {
+        socket.emit('error', { message: 'Message is too long' });
+        return;
+      }
+
       try {
         const chatMessage = new ChatMessage({
           message: messageData.message,

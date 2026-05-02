@@ -455,7 +455,7 @@
       }
 
       function renderUserList(users) {
-        onlineUsersList.innerHTML = '';
+        onlineUsersList.replaceChildren();
         users.forEach(user => {
           const userItem = document.createElement('li');
           userItem.textContent = user.username;
@@ -492,7 +492,7 @@
           }
         });
 
-        messagesContainer.innerHTML = '';
+        messagesContainer.replaceChildren();
 
         fetch(`/chat/api/messages/${roomName}`)
           .then(response => response.json())
@@ -511,7 +511,7 @@
       }
 
       socket.on('chat_history', async (messages) => {
-        messagesContainer.innerHTML = '';
+        messagesContainer.replaceChildren();
         for (const message of messages) {
           await renderMessage(message);
         }
